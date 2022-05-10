@@ -21,7 +21,7 @@ class Engine {
   bestScoreGenerational = 0;
   mapSize = 20;
   movesPerGeneration = 50;
-  mutationRate = 0.005;
+  mutationRate = 0.002;
   numGenerations = 0;
   numMovesRemaining = 0;
   population: Agent[] = [];
@@ -155,10 +155,8 @@ class Engine {
     model.add(
       tf.layers.dense({
         name: 'hidden',
-        units: 2,
-        inputShape: [2],
-        // units: 7, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
-        // inputShape: [10], // obstructions for each side, visited count each side, x/y distance from end
+        units: 5, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
+        inputShape: [6], // obstructions for each side, x/y distance from end
         activation: 'tanh',
       }),
     );
@@ -181,20 +179,16 @@ class Engine {
   private getNextMove({
     model,
     map: { end, nodes },
-    numMoves,
+    // numMoves,
     position: { x, y },
   }: Agent): Direction {
     return tf.tidy(() => {
       const tfInputs = tf.tensor2d([
         [
-          // this.boolToNum(this.isObstructionAt(nodes, x, y - 1)), // up
-          // this.boolToNum(this.isObstructionAt(nodes, x + 1, y)), // right
-          // this.boolToNum(this.isObstructionAt(nodes, x, y + 1)), // down
-          // this.boolToNum(this.isObstructionAt(nodes, x - 1, y)), // left
-          // this.getNormalizedVisitCount(nodes, numMoves, x, y - 1), // up
-          // this.getNormalizedVisitCount(nodes, numMoves, x + 1, y), // right
-          // this.getNormalizedVisitCount(nodes, numMoves, x, y + 1), // down
-          // this.getNormalizedVisitCount(nodes, numMoves, x - 1, y), // left
+          this.boolToNum(this.isObstructionAt(nodes, x, y - 1)), // up
+          this.boolToNum(this.isObstructionAt(nodes, x + 1, y)), // right
+          this.boolToNum(this.isObstructionAt(nodes, x, y + 1)), // down
+          this.boolToNum(this.isObstructionAt(nodes, x - 1, y)), // left
           (end.x - x) / this.mapSize,
           (end.y - y) / this.mapSize,
         ],
@@ -218,9 +212,8 @@ class Engine {
   }
 
   private computeScore({
-    // directionsMoved,
     map: { start, end },
-    // numCollisions,
+    numCollisions,
     numMoves,
     position,
   }: Agent) {
@@ -229,7 +222,7 @@ class Engine {
     const distancePctProgress = 1 - positionToEndDistance / startToEndDistance;
     const pctMovesUsed = numMoves / this.movesPerGeneration;
 
-    return distancePctProgress / pctMovesUsed;
+    return distancePctProgress / pctMovesUsed - Math.pow(numCollisions, 2);
   }
 
   private computeAbsoluteDistance(
@@ -245,7 +238,7 @@ class Engine {
     do {
       map = ((): Map => {
         const direction = sample(directions);
-        console.log(direction);
+
         switch (direction) {
           // Start at bottom.
           case 'up':
@@ -284,7 +277,7 @@ class Engine {
         for (let y = 0; y < this.mapSize; y++) {
           const isStart = map.start.x === x && map.start.y === y;
           const isEnd = map.end.x === x && map.end.y === y;
-          const isObstruction = !isStart && !isEnd && false; // && random(0.2) === 0;
+          const isObstruction = !isStart && !isEnd && random(true) < 0.2;
           map.nodes[x][y] = { isObstruction, visitCount: isStart ? 1 : 0 };
         }
       }
@@ -334,21 +327,6 @@ class Engine {
     }
 
     return node.isObstruction;
-  }
-
-  private getNormalizedVisitCount(
-    nodes: MapNode[][],
-    numMoves: number,
-    x: number,
-    y: number,
-  ): number {
-    const node = this.getMapNode(nodes, x, y);
-
-    if (!node || !numMoves) {
-      return 0;
-    }
-
-    return node.visitCount / numMoves;
   }
 
   private getMapNode(
