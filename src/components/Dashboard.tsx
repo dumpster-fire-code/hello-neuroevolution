@@ -4,7 +4,7 @@ import React, { FC, useState } from 'react';
 import { Agent } from './Agent';
 import { Stat } from './Stat';
 
-const maxVisibleAgents = 32;
+const maxVisibleAgents = 8;
 
 const formatNumber = (value: number) =>
   value.toLocaleString('en-US', { maximumFractionDigits: 4 });
@@ -21,6 +21,7 @@ const Dashboard: FC = () => {
   } = useNeuroevolution();
 
   const [showAgents, setShowAgents] = useState(true);
+  const [showDetails, setShowDetails] = useState(true);
 
   return (
     <div className="m-4">
@@ -40,6 +41,17 @@ const Dashboard: FC = () => {
             />
           }
         />
+        <Stat
+          label="show_details"
+          value={
+            <input
+              className="mt-1"
+              type="checkbox"
+              checked={showDetails}
+              onChange={() => setShowDetails(!showDetails)}
+            />
+          }
+        />
       </div>
       {showAgents && (
         <div className="flex flex-row flex-wrap justify-center">
@@ -48,6 +60,7 @@ const Dashboard: FC = () => {
               key={agent.id}
               agent={agent}
               numMovesRemaining={numMovesRemaining}
+              showDetails={showDetails}
             />
           ))}
         </div>

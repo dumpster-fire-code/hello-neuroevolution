@@ -14,11 +14,14 @@ export interface MapNode {
 export interface Agent {
   directionsMoved: Set<Direction>;
   id: string;
+  labeledInputs: Record<string, number>;
+  labeledScoringFactors: Record<string, number>;
   map: Map;
   model: tf.Sequential;
   numCollisions: number;
   numMoves: number;
   position: Position;
+  score: number;
 }
 
 export interface Position {

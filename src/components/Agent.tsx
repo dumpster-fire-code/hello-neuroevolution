@@ -4,11 +4,12 @@ import { Agent as AgentType } from 'types';
 interface AgentProps {
   agent: AgentType;
   numMovesRemaining: number;
+  showDetails: boolean;
 }
 
-const nodeSize = 8;
+const nodeSize = 10;
 
-const Agent: FC<AgentProps> = ({ agent, numMovesRemaining }) => {
+const Agent: FC<AgentProps> = ({ agent, numMovesRemaining, showDetails }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSize = agent.map.nodes.length * nodeSize;
 
@@ -36,10 +37,54 @@ const Agent: FC<AgentProps> = ({ agent, numMovesRemaining }) => {
   }, [agent, numMovesRemaining]);
 
   return (
-    <div className="flex justify-center items-center border-4 border-solid border-white">
-      <canvas ref={canvasRef} width={canvasSize} height={canvasSize}></canvas>
+    <div className="flex flex-col justify-center items-center border-4 border-solid border-white">
+      <div>
+        <canvas ref={canvasRef} width={canvasSize} height={canvasSize}></canvas>
+      </div>
+      {showDetails && (
+        <div
+          className="flex flex-row w-full justify-between mb-4"
+          style={{ fontSize: 8 }}
+        >
+          <AgentDetails title="Inputs" data={agent.labeledInputs} />
+          <AgentDetails title="Fitness" data={agent.labeledScoringFactors} />
+        </div>
+      )}
     </div>
   );
 };
+
+interface AgentDetailsProps {
+  title: string;
+  data: Record<string, number>;
+}
+
+const AgentDetails: FC<AgentDetailsProps> = ({ data, title }) => (
+  <div>
+    <table>
+      <thead>
+        <tr>
+          <th colSpan={2}>{title}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {Object.entries(data).map(([label, value]) => (
+          <tr key={label}>
+            <td className="text-right" style={{ width: 70 }}>
+              {label}:&nbsp;
+            </td>
+            <td style={{ width: 40 }}>
+              {value.toLocaleString('en-US', {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+                signDisplay: 'always',
+              })}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+);
 
 export { Agent };

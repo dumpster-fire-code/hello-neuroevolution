@@ -21,11 +21,13 @@ class Engine {
   bestScoreGenerational = 0;
   mapSize = 20;
   movesPerGeneration = 50;
-  mutationRate = 0.002;
+  mutationRate = 0.003;
   numGenerations = 0;
   numMovesRemaining = 0;
   population: Agent[] = [];
   populationSize = 50;
+  topPerformersPct = 0.5;
+  elitePerformersPct = 0.05;
 
   nextGeneration() {
     const map = this.buildMap();
@@ -35,15 +37,57 @@ class Engine {
         this.buildAgent({ map, model: this.buildModel(null) }),
       );
     } else {
-      this.population = times(this.populationSize).map(() => {
+      const prevPopulation = this.population;
+      const nextPopulation: Agent[] = [];
+
+      this.population.sort((a, b) => b.score - a.score);
+
+      const numElitePerformers = Math.round(
+        this.populationSize * this.elitePerformersPct,
+      );
+      const numTopPerformers = Math.round(
+        this.populationSize * this.topPerformersPct,
+      );
+
+      const elitePerformers = this.population.slice(0, numElitePerformers);
+      const topPerformers = this.population.slice(0, numTopPerformers);
+
+      elitePerformers.forEach((elitePerformer) => {
+        const model = this.buildModel(elitePerformer.model.getWeights());
+        nextPopulation.push(this.buildAgent({ map, model }));
+      });
+
+      while (nextPopulation.length < this.populationSize) {
         const weights = this.buildWeights(
-          this.selectParent(sample(this.population)!, sample(this.population)!),
-          this.selectParent(sample(this.population)!, sample(this.population)!),
+          this.selectParent(sample(topPerformers)!, sample(topPerformers)!),
+          this.selectParent(sample(topPerformers)!, sample(topPerformers)!),
         );
 
         const model = this.buildModel(weights);
+        nextPopulation.push(this.buildAgent({ map, model }));
+      }
 
-        return this.buildAgent({ map, model });
+      console.log('~~~~~~~~~~~~~~~~~~~~~~~~~~~');
+      console.log(
+        'average elite performer score:',
+        elitePerformers.reduce((sum, { score }) => sum + score, 0) /
+          elitePerformers.length,
+      );
+      console.log(
+        'average top performer score:',
+        topPerformers.reduce((sum, { score }) => sum + score, 0) /
+          topPerformers.length,
+      );
+      console.log(
+        'average  score:',
+        this.population.reduce((sum, { score }) => sum + score, 0) /
+          this.population.length,
+      );
+
+      this.population = nextPopulation;
+
+      prevPopulation.forEach((agent) => {
+        agent.model.dispose();
       });
     }
 
@@ -55,10 +99,12 @@ class Engine {
     this.numMovesRemaining--;
 
     this.population.forEach((agent) => {
-      if (
-        agent.position.x === agent.map.end.x &&
-        agent.position.y === agent.map.end.y
-      ) {
+      const {
+        position,
+        map: { end, nodes },
+      } = agent;
+
+      if (position.x === end.x && position.y === end.y) {
         return;
       }
 
@@ -66,30 +112,29 @@ class Engine {
       const offset = offsets[nextMove];
 
       const possibleNextPosition: Position = {
-        x: agent.position.x + offset.x,
-        y: agent.position.y + offset.y,
+        x: position.x + offset.x,
+        y: position.y + offset.y,
       };
 
       agent.numMoves++;
       agent.directionsMoved.add(nextMove);
 
       if (
-        possibleNextPosition.x < 0 ||
-        possibleNextPosition.x > this.mapSize - 1 ||
-        possibleNextPosition.y < 0 ||
-        possibleNextPosition.y > this.mapSize - 1 ||
         this.isObstructionAt(
-          agent.map.nodes,
+          nodes,
           possibleNextPosition.x,
           possibleNextPosition.y,
         )
       ) {
         agent.numCollisions++;
       } else {
-        agent.map.nodes[possibleNextPosition.x][possibleNextPosition.y]
-          .visitCount++;
+        nodes[possibleNextPosition.x][possibleNextPosition.y].visitCount++;
         agent.position = possibleNextPosition;
       }
+    });
+
+    this.population.forEach((agent) => {
+      this.updateScore(agent);
     });
   }
 
@@ -103,46 +148,51 @@ class Engine {
     return {
       directionsMoved: new Set(),
       id: uniqueId('agent_'),
+      labeledInputs: {},
+      labeledScoringFactors: {},
+      map: cloneDeep(map),
       model,
       numCollisions: 0,
       numMoves: 0,
       position: { ...map.start },
-      map: cloneDeep(map),
+      score: 0,
     };
   }
 
   private buildWeights(parent1: Agent, parent2: Agent): Tensor[] {
-    const parent1WrappedWeights = parent1.model.getWeights();
-    const parent2WrappedWeights = parent2.model.getWeights();
+    return tf.tidy(() => {
+      const parent1WrappedWeights = parent1.model.getWeights();
+      const parent2WrappedWeights = parent2.model.getWeights();
 
-    const weights: number[][] = [];
+      const weights: number[][] = [];
 
-    for (let i = 0; i < parent1WrappedWeights.length; i++) {
-      weights[i] = [];
+      for (let i = 0; i < parent1WrappedWeights.length; i++) {
+        weights[i] = [];
 
-      const parent1Weights = parent1WrappedWeights[i].dataSync();
-      const parent2Weights = parent2WrappedWeights[i].dataSync();
+        const parent1Weights = parent1WrappedWeights[i].dataSync();
+        const parent2Weights = parent2WrappedWeights[i].dataSync();
 
-      for (let j = 0; j < parent1Weights.length; j++) {
-        if (random(true) < this.mutationRate) {
-          weights[i].push(random());
-        } else {
-          const parent1Weight = parent1Weights[j];
-          const parent2Weight = parent2Weights[j];
-          weights[i].push(sample([parent1Weight, parent2Weight])!);
+        for (let j = 0; j < parent1Weights.length; j++) {
+          if (random(true) < this.mutationRate) {
+            weights[i].push(random());
+          } else {
+            const parent1Weight = parent1Weights[j];
+            const parent2Weight = parent2Weights[j];
+            weights[i].push(sample([parent1Weight, parent2Weight])!);
+          }
         }
       }
-    }
 
-    const weightsWrapped: Tensor[] = [];
+      const weightsWrapped: Tensor[] = [];
 
-    for (let i = 0; i < weights.length; i++) {
-      weightsWrapped.push(
-        tf.tensor(weights[i], parent1WrappedWeights[i].shape),
-      );
-    }
+      for (let i = 0; i < weights.length; i++) {
+        weightsWrapped.push(
+          tf.tensor(weights[i], parent1WrappedWeights[i].shape),
+        );
+      }
 
-    return weightsWrapped;
+      return weightsWrapped;
+    });
   }
 
   private buildModel(weights: Tensor[] | null): tf.Sequential {
@@ -155,8 +205,16 @@ class Engine {
     model.add(
       tf.layers.dense({
         name: 'hidden',
-        units: 5, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
-        inputShape: [6], // obstructions for each side, x/y distance from end
+        units: 10, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
+        inputShape: [10],
+        activation: 'tanh',
+      }),
+    );
+
+    model.add(
+      tf.layers.dense({
+        name: 'hidden2',
+        units: 6, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
         activation: 'tanh',
       }),
     );
@@ -176,23 +234,37 @@ class Engine {
     return model;
   }
 
-  private getNextMove({
-    model,
-    map: { end, nodes },
-    // numMoves,
-    position: { x, y },
-  }: Agent): Direction {
+  private getNextMove(agent: Agent): Direction {
+    const {
+      model,
+      map: { end, nodes },
+      position: { x, y },
+    } = agent;
+
     return tf.tidy(() => {
-      const tfInputs = tf.tensor2d([
-        [
-          this.boolToNum(this.isObstructionAt(nodes, x, y - 1)), // up
-          this.boolToNum(this.isObstructionAt(nodes, x + 1, y)), // right
-          this.boolToNum(this.isObstructionAt(nodes, x, y + 1)), // down
-          this.boolToNum(this.isObstructionAt(nodes, x - 1, y)), // left
-          (end.x - x) / this.mapSize,
-          (end.y - y) / this.mapSize,
-        ],
+      const unexploredInputs = this.normalize([
+        this.getUnexploredInput(nodes, x, y - 1), // up
+        this.getUnexploredInput(nodes, x + 1, y), // right
+        this.getUnexploredInput(nodes, x, y + 1), // down
+        this.getUnexploredInput(nodes, x - 1, y), // left
       ]);
+
+      const labeledInputs = {
+        'available ↑': this.getAvailableNeighborInput(nodes, x, y - 1),
+        'available →': this.getAvailableNeighborInput(nodes, x + 1, y),
+        'available ↓': this.getAvailableNeighborInput(nodes, x, y + 1),
+        'available ←': this.getAvailableNeighborInput(nodes, x - 1, y),
+        'unexplored ↑': unexploredInputs[0],
+        'unexplored →': unexploredInputs[1],
+        'unexplored ↓': unexploredInputs[2],
+        'unexplored ←': unexploredInputs[3],
+        'goal ↔': (end.x - x) / this.mapSize,
+        'goal ↕': (end.y - y) / this.mapSize,
+      };
+
+      agent.labeledInputs = labeledInputs;
+
+      const tfInputs = tf.tensor2d([Object.values(labeledInputs) as number[]]);
       const tfOutputs = model.predict(tfInputs) as tf.Tensor;
       const outputs = tfOutputs.dataSync() as unknown as number[];
 
@@ -211,18 +283,41 @@ class Engine {
     });
   }
 
-  private computeScore({
-    map: { start, end },
-    numCollisions,
-    numMoves,
-    position,
-  }: Agent) {
+  private updateScore(agent: Agent) {
+    const {
+      map: { start, end, nodes },
+      numCollisions,
+      numMoves,
+      position,
+    } = agent;
+
     const startToEndDistance = this.computeAbsoluteDistance(start, end);
     const positionToEndDistance = this.computeAbsoluteDistance(position, end);
-    const distancePctProgress = 1 - positionToEndDistance / startToEndDistance;
+    const distancePct = 1 - positionToEndDistance / startToEndDistance;
     const pctMovesUsed = numMoves / this.movesPerGeneration;
 
-    return distancePctProgress / pctMovesUsed - Math.pow(numCollisions, 2);
+    let backtracks = 0;
+
+    for (let x = 0; x < this.mapSize; x++) {
+      for (let y = 0; y < this.mapSize; y++) {
+        backtracks += Math.max(0, nodes[x][y].visitCount - 2);
+      }
+    }
+
+    const progress = distancePct / pctMovesUsed;
+    const collisionsPenalty = numCollisions / numMoves;
+    const backtrackPenalty = backtracks / numMoves;
+
+    const score = 10 * progress - numCollisions - backtrackPenalty;
+
+    agent.labeledScoringFactors = {
+      progress,
+      collisions: collisionsPenalty,
+      backtracks: backtrackPenalty,
+      score,
+    };
+
+    agent.score = score;
   }
 
   private computeAbsoluteDistance(
@@ -320,7 +415,7 @@ class Engine {
   }
 
   private isObstructionAt(nodes: MapNode[][], x: number, y: number): boolean {
-    const node = this.getMapNode(nodes, x, y);
+    const node = this.getNode(nodes, x, y);
 
     if (!node) {
       return true;
@@ -329,7 +424,7 @@ class Engine {
     return node.isObstruction;
   }
 
-  private getMapNode(
+  private getNode(
     nodes: MapNode[][],
     x: number,
     y: number,
@@ -341,14 +436,67 @@ class Engine {
     return nodes[x][y];
   }
 
-  private boolToNum(value: boolean) {
-    return value ? 1 : 0;
+  private getAvailableNeighborInput(
+    nodes: MapNode[][],
+    x: number,
+    y: number,
+  ): number {
+    const isObstructed = this.isObstructionAt(nodes, x, y);
+    return isObstructed ? -1 : 1;
+  }
+
+  private getUnexploredInput(nodes: MapNode[][], x: number, y: number): number {
+    const node = this.getNode(nodes, x, y);
+
+    if (!node || this.isObstructionAt(nodes, x, y)) {
+      return -1;
+    }
+
+    const neighborNodesBonus =
+      [
+        this.getNode(nodes, x, y - 1), // up
+        this.getNode(nodes, x + 1, y), // right
+        this.getNode(nodes, x, y + 1), // down
+        this.getNode(nodes, x - 1, y), // left
+      ].filter(
+        (adjacentNode) =>
+          adjacentNode &&
+          !adjacentNode.isObstruction &&
+          adjacentNode.visitCount === 0,
+      ).length * 0.25;
+
+    return (
+      (() => {
+        switch (node.visitCount) {
+          case 0:
+            return 1;
+          case 1:
+            return 0;
+          case 2:
+            return -0.5;
+          default:
+            return -1;
+        }
+      })() + neighborNodesBonus
+    );
+  }
+
+  private normalize(values: number[]): number[] {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min;
+
+    return values.map((value) => {
+      if (range === 0) {
+        return 0;
+      }
+
+      return (2 * (value - min)) / range - 1;
+    });
   }
 
   private selectParent(candidate1: Agent, candidate2: Agent) {
-    return this.computeScore(candidate1) >= this.computeScore(candidate2)
-      ? candidate1
-      : candidate2;
+    return candidate1.score >= candidate2.score ? candidate1 : candidate2;
   }
 }
 
