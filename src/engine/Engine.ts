@@ -230,9 +230,10 @@ class Engine {
   private getNextMove(agent: Agent): Direction {
     const {
       model,
-      map: { end, nodes },
+      map,
       position: { x, y },
     } = agent;
+    const { nodes } = map;
 
     return tf.tidy(() => {
       const unexploredInputs = this.normalize([
@@ -251,18 +252,15 @@ class Engine {
         'unexplored →': unexploredInputs[1],
         'unexplored ↓': unexploredInputs[2],
         'unexplored ←': unexploredInputs[3],
-        'goal ↔': (end.x - x) / this.mapSize,
-        'goal ↕': (end.y - y) / this.mapSize,
+        'goal ↑': map.end.y < y ? 1 : map.end.y === y ? 0 : -1,
+        'goal →': map.end.x > x ? 1 : map.end.x === x ? 0 : -1,
+        'goal ↓': map.end.y > y ? 1 : map.end.y === y ? 0 : -1,
+        'goal ←': map.end.x < x ? 1 : map.end.x === x ? 0 : -1,
       };
 
       agent.labeledInputs = labeledInputs;
 
-      const tfInputs = tf.tensor2d([
-        (Object.values(labeledInputs) as number[]).concat([
-          labeledInputs['goal ↔'],
-          labeledInputs['goal ↕'],
-        ]),
-      ]);
+      const tfInputs = tf.tensor2d([Object.values(labeledInputs) as number[]]);
       const tfOutputs = model.predict(tfInputs) as tf.Tensor;
       const outputs = tfOutputs.dataSync() as unknown as number[];
 
@@ -464,22 +462,18 @@ class Engine {
           adjacentNode &&
           !adjacentNode.isObstruction &&
           adjacentNode.visitCount === 0,
-      ).length * 0.25;
+      ).length * 0.15;
 
-    return (
-      (() => {
-        switch (node.visitCount) {
-          case 0:
-            return 1;
-          case 1:
-            return 0;
-          case 2:
-            return -0.5;
-          default:
-            return -1;
-        }
-      })() + neighborNodesBonus
-    );
+    switch (node.visitCount) {
+      case 0:
+        return 1;
+      case 1:
+        return 0 + neighborNodesBonus;
+      case 2:
+        return -0.5 + neighborNodesBonus;
+      default:
+        return -1 + neighborNodesBonus;
+    }
   }
 
   private normalize(values: number[]): number[] {
