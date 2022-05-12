@@ -21,13 +21,13 @@ class Engine {
   bestScoreGenerational = 0;
   mapSize = 20;
   movesPerGeneration = 50;
-  mutationRate = 0.003;
+  mutationRate = 0.002;
   numGenerations = 0;
   numMovesRemaining = 0;
   population: Agent[] = [];
-  populationSize = 50;
-  topPerformersPct = 0.5;
-  elitePerformersPct = 0.05;
+  populationSize = 75;
+  topPerformersPct = 0.65;
+  elitePerformersPct = 0.04;
 
   nextGeneration() {
     const map = this.buildMap();
@@ -67,22 +67,22 @@ class Engine {
         nextPopulation.push(this.buildAgent({ map, model }));
       }
 
-      console.log('~~~~~~~~~~~~~~~~~~~~~~~~~~~');
-      console.log(
-        'average elite performer score:',
-        elitePerformers.reduce((sum, { score }) => sum + score, 0) /
-          elitePerformers.length,
-      );
-      console.log(
-        'average top performer score:',
-        topPerformers.reduce((sum, { score }) => sum + score, 0) /
-          topPerformers.length,
-      );
-      console.log(
-        'average  score:',
-        this.population.reduce((sum, { score }) => sum + score, 0) /
-          this.population.length,
-      );
+      // console.log('~~~~~~~~~~~~~~~~~~~~~~~~~~~');
+      // console.log(
+      //   'average elite performer score:',
+      //   elitePerformers.reduce((sum, { score }) => sum + score, 0) /
+      //     elitePerformers.length,
+      // );
+      // console.log(
+      //   'average top performer score:',
+      //   topPerformers.reduce((sum, { score }) => sum + score, 0) /
+      //     topPerformers.length,
+      // );
+      // console.log(
+      //   'average  score:',
+      //   this.population.reduce((sum, { score }) => sum + score, 0) /
+      //     this.population.length,
+      // );
 
       this.population = nextPopulation;
 
@@ -202,27 +202,20 @@ class Engine {
       model.setFastWeightInitDuringBuild(true);
     }
 
-    model.add(
-      tf.layers.dense({
-        name: 'hidden',
-        units: 10, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
-        inputShape: [10],
-        activation: 'tanh',
-      }),
-    );
-
-    model.add(
-      tf.layers.dense({
-        name: 'hidden2',
-        units: 6, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
-        activation: 'tanh',
-      }),
-    );
+    // model.add(
+    //   tf.layers.dense({
+    //     name: 'hidden',
+    //     units: 6, // https://medium.com/geekculture/introduction-to-neural-network-2f8b8221fbd3 "Most of the problems can be solved by using a single hidden layer with the number of neurons equal to the mean of the input and output layer."
+    //     inputShape: [10],
+    //     activation: 'tanh',
+    //   }),
+    // );
 
     model.add(
       tf.layers.dense({
         name: 'output',
         units: 4,
+        inputShape: [12],
         activation: 'softmax',
       }),
     );
@@ -264,7 +257,12 @@ class Engine {
 
       agent.labeledInputs = labeledInputs;
 
-      const tfInputs = tf.tensor2d([Object.values(labeledInputs) as number[]]);
+      const tfInputs = tf.tensor2d([
+        (Object.values(labeledInputs) as number[]).concat([
+          labeledInputs['goal ↔'],
+          labeledInputs['goal ↕'],
+        ]),
+      ]);
       const tfOutputs = model.predict(tfInputs) as tf.Tensor;
       const outputs = tfOutputs.dataSync() as unknown as number[];
 
@@ -304,16 +302,19 @@ class Engine {
       }
     }
 
-    const progress = distancePct / pctMovesUsed;
-    const collisionsPenalty = numCollisions / numMoves;
-    const backtrackPenalty = backtracks / numMoves;
+    const progress = (5 * distancePct) / pctMovesUsed;
+    const collisionsPenalty = numCollisions;
+    const backtrackPenalty = backtracks;
+    const reachedEndBonus = distancePct === 1 ? 10 : 0;
 
-    const score = 10 * progress - numCollisions - backtrackPenalty;
+    const score =
+      progress - collisionsPenalty - backtrackPenalty + reachedEndBonus;
 
     agent.labeledScoringFactors = {
       progress,
       collisions: collisionsPenalty,
       backtracks: backtrackPenalty,
+      reachedEnd: reachedEndBonus,
       score,
     };
 
